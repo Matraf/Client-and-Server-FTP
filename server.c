@@ -31,15 +31,102 @@ void readCommand(char path[])
     }
 }
 
-void handleClient(int gn)
-{
+void handleUpload(int gn, char path[]){
+    char file_name[sizeof(command[1])], *ptr, realPath[512];
+    FILE* file;
+    unsigned char bufor[1024];
+    long length, data, totalData = 0;
+    int wczytano = 0;
 
-    long length, data, totalData, przeczytano, odebrano_razem;
+    printf("Klient chce wstawić plik: %s\n", command[1]);
+    strcpy(file_name, command[1]);
+    memset(path, 0, 512);
+    if (recv(gn, path, 512, 0) <= 0)
+    {
+        printf("Blad przy odczycie dlugosci\n");
+        return;
+    }
+    length = strtol(path, &ptr, 10);
+
+    mkdir("data",0777);
+
+    sprintf(realPath, "./data/%s", file_name);
+
+    file = fopen(realPath, "w");
+
+    while (totalData < length)
+    {
+        memset(bufor, 0, 1025);
+        data = recv(gn, bufor, 1024, 0);
+        if (data < 0) break;
+        totalData += data;
+        wczytano = fwrite(bufor, sizeof(char), data, file);
+    }
+    if (totalData == length)
+    {
+
+        printf("Plik odebrany poprawnie\n");
+    }
+    else
+        printf("Blad przy odbieraniu pliku\n");
+    fclose(file);
+}
+
+void handleDownload(int gn, char path[]){
+    long length, data, totalData = 0, przeczytano;
     struct stat fileinfo;
     FILE* file;
     unsigned char bufor[1024];
-    struct stat st = {0};
+    char realPath[512];
 
+    printf("Klient chce plika: %s\n", command[1]);
+    sprintf(realPath, "./data/%s", command[1]);
+    if (stat(realPath, &fileinfo) < 0)
+    {
+        printf("Nie moge pobrac informacji o pliku\n");
+        return;
+    }
+
+    if (fileinfo.st_size == 0)
+    {
+        printf("Rozmiar pliku 0\n");
+        return;
+    }
+
+    printf("Dlugosc pliku: %ld\n", fileinfo.st_size);
+
+    length = fileinfo.st_size;
+
+    file = fopen(realPath, "rb");
+    if (file == NULL)
+    {
+        printf("Blad przy otwarciu pliku\n");
+        return;
+    }
+
+    while (totalData < length)
+    {
+        memset(bufor, 0, 1024);
+        przeczytano = fread(bufor, 1, 1024, file);
+        data = write(gn, bufor, przeczytano);
+        if (przeczytano != data)
+        {
+            break;
+        }
+        totalData += data;
+    }
+    if (totalData == length)
+    {
+
+        printf("Plik wyslany poprawnie\n");
+    }
+    else
+        printf("Blad przy wysylaniu pliku\n");
+    fclose(file);
+}
+
+void handleClient(int gn)
+{
     while(1)
     {
         char path[512];
@@ -47,112 +134,20 @@ void handleClient(int gn)
         printf("\nOczekuje na polecenie...\n");
         if (recv(gn, path, 512, 0) <= 0)
         {
-            printf("Path w if: %s, wielkosc: %ld\n", path, strlen(path));
-            printf("Potomny: blad przy odczycie sciezki\n");
+            printf("Blad przy odczycie sciezki\n");
             return;
         }
 
-        printf("Path: %s\n", path);
         readCommand(path);
 
         //***UPLOAD
-        if(strcmp(command[0], "upload") == 0 )
-        {
-            printf("Potomny: klient chce wstawić plik: %s\n", command[1]);
-            char file_name[sizeof(command[1])];
-            char test[sizeof(command[1])];
-
-            strcpy(file_name, command[1]);
-            memset(path, 0, 512);
-            if (recv(gn, path, 512, 0) <= 0)
-            {
-                printf("Blad przy odczycie dlugosci\n");
-                return;
-            }
-
-            printf("Length: %s\n", path);
-            char *ptr;
-            length = strtol(path, &ptr, 10);
-
-            totalData = 0;
-            mkdir("data",0777);
-
-            char realPath[512];
-            strcpy(test,file_name);
-            sprintf(realPath, "./data/%s", test);
-
-            file = fopen(realPath, "w");
-
-            int wczytano = 0;
-            while (totalData < length)
-            {
-
-                memset(bufor, 0, 1025);
-                data = recv(gn, bufor, 1024, 0);
-                if (data < 0)
-                    break;
-                totalData += data;
-                wczytano = fwrite(bufor, sizeof(char), data, file);
-            }
-            fclose(file);
-
+        if(strcmp(command[0], "upload") == 0 ){
+            handleUpload(gn, path);
         }
         //***DOWNLOAD
         else if(strcmp(command[0], "download") == 0)
         {
-            printf("Potomny: klient chce plik %s\n", command[1]);
-            char realPath[512];
-            sprintf(realPath, "./data/%s", command[1]);
-            printf("realPath: %s\n", realPath);
-            if (stat(realPath, &fileinfo) < 0)
-            {
-                printf("Potomny: nie moge pobrac informacji o pliku\n");
-                return;
-            }
-
-            if (fileinfo.st_size == 0)
-            {
-                printf("Potomny: rozmiar pliku 0\n");
-                return;
-            }
-
-            printf("Potomny: dlugosc pliku: %ld\n", fileinfo.st_size);
-
-            length = fileinfo.st_size;
-            totalData = 0;
-
-            file = fopen(realPath, "rb");
-            if (file == NULL)
-            {
-                printf("Potomny: blad przy otwarciu pliku\n");
-                return;
-            }
-
-            while (1)
-            {
-                if(totalData >= length)
-                {
-                    break;
-                }
-                memset(bufor, 0, 1024);
-                przeczytano = fread(bufor, 1, 1024, file);
-                data = write(gn, bufor, przeczytano);
-
-                if (przeczytano != data)
-                {
-                    break;
-                }
-                totalData += data;
-            }
-            if (totalData == length)
-            {
-
-                printf("Potomny: plik wyslany poprawnie\n");
-            }
-            else
-                printf("Potomny: blad przy wysylaniu pliku\n");
-            fclose(file);
-
+            handleDownload(gn, path);
         }
         //***END
         else if(strcmp(command[0], "end") == 0)
@@ -182,7 +177,7 @@ int main(void)
 
     if (bind(gn_nasluch, (struct sockaddr*) &adr, dladr) < 0)
     {
-        printf("Glowny: bind nie powiodl sie\n");
+        printf("Bind nie powiodl sie\n");
         return 1;
     }
 
@@ -194,29 +189,21 @@ int main(void)
         gn_klienta = accept(gn_nasluch, (struct sockaddr*) &adr, &dladr);
         if (gn_klienta < 0)
         {
-            printf("Glowny: accept zwrocil blad\n");
+            printf("Accept zwrocil blad\n");
             continue;
         }
-        printf("Glowny: polaczenie od %s:%u\n",
+        printf("Polaczenie od %s:%u\n",
                inet_ntoa(adr.sin_addr),
                ntohs(adr.sin_port)
               );
-        printf("Glowny: tworze proces potomny\n");
         if (fork() == 0)
         {
             /* proces potomny */
-            printf("Potomny: zaczynam obsluge\n");
+            printf("Zaczynam obsluge klienta\n");
             handleClient(gn_klienta);
-            printf("Potomny: zamykam gniazdo\n");
+            printf("Zamykam gniazdo\n");
             close(gn_klienta);
-            printf("Potomny: koncze proces\n");
             exit(0);
-        }
-        else
-        {
-            /* proces macierzysty */
-            printf("Glowny: wracam do nasluchu\n");
-            continue;
         }
     }
     return 0;
